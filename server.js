@@ -10,6 +10,7 @@ const { openDb } = require('./lib/db');
 const { Service, AppError } = require('./lib/service');
 const { Hub } = require('./lib/hub');
 const { attach } = require('./lib/ws');
+const { Notifier } = require('./lib/notify');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = {
@@ -50,8 +51,9 @@ function statsHtml(st) {
 
 // Форма настройки демо: название, доставка, сервис и меню текстом. Без JS, обычный POST.
 // ADMIN_KEY задан -> доступ только с ключом; не задан -> открыто (удобно для локального показа).
-function setupHtml(svc, key, msg) {
+function setupHtml(svc, key, msg, base = '') {
   const r = svc.restaurants().find((x) => x.id === svc.activeRestaurantId());
+  const rk = svc.get('SELECT key FROM restaurants WHERE id = ?', r.id).key;
   const hid = key ? `<input type="hidden" name="key" value="${esc(key)}">` : '';
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark">
@@ -65,17 +67,22 @@ ${msg ? `<p class="carry" role="status">${esc(msg)}</p>` : ''}
 <input id="s-del" name="deliveryRub" inputmode="decimal" required value="${esc(String(r.deliveryFee / 100).replace('.', ','))}">
 <label class="f" for="s-pct">Сервисный сбор, %</label>
 <input id="s-pct" name="servicePct" inputmode="numeric" required value="${esc(r.servicePct)}">
+<label class="f" for="s-orig">Сайты ресторана (где будет виджет)</label>
+<input id="s-orig" name="origins" maxlength="200" placeholder="site.ru, www.site.ru" value="${esc(r.origins.join(', '))}">
 <label class="f" for="s-menu">Меню: одно блюдо в строке</label>
 <p class="hint" style="text-align:left">Категория | Название | Цена | Описание | Вес. Описание и вес можно не писать. «!» после названия: нет в наличии.</p>
 <textarea id="s-menu" name="menuText" rows="14" required>${esc(svc.menuText(r.id))}</textarea>
 <button class="btn primary wide" type="submit" style="margin-top:14px">Применить</button></form>
+<p class="muted note">Ключ заведения: <b>${esc(rk)}</b>. Telegram: ресторан пишет боту <b>/start ${esc(rk)}</b>${r.live ? ' (чат подключён)' : ''}.<br>
+Код для сайта: <code>${esc(`<script src="${base}/w.js" data-key="${rk}" defer></script>`)}</code><br>
+Прямая ссылка на виджет: <a href="/embed?k=${esc(rk)}">${esc(base)}/embed?k=${esc(rk)}</a></p>
 <p class="muted note">Новое заведение сразу появляется у всех. Идущие заказы остаются со своим старым меню.</p>
 <p class="muted note"><a href="/">Открыть приложение</a></p></main></body></html>`;
 }
 
 const HTTP_STATUS = { bad_request: 400, not_found: 404, rate_limited: 429 };
 
-function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data', 'group-order.db'), trustProxy = process.env.TRUST_PROXY === '1' } = {}) {
+function createApp({ dbFile = process.env.DB_FILE || (fs.existsSync('/data') ? '/data/group-order.db' : path.join(__dirname, 'data', 'group-order.db')), trustProxy = process.env.TRUST_PROXY === '1' } = {}) {
   const clock = { offset: 0, now() { return Date.now() + this.offset; } }; // offset нужен тестам таймера
   const db = openDb(dbFile);
   const svc = new Service(db, clock);
@@ -126,7 +133,7 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
   // и получает 304 без тела; тексты отдаются в brotli или gzip.
   const fileCache = new Map();
   const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg', '.json']);
-  function serveFile(req, res, file) {
+  function serveFile(req, res, file, extra) {
     fs.stat(file, (err, st) => {
       if (err || !st.isFile()) return json(res, 404, { error: 'not_found' });
       let c = fileCache.get(file);
@@ -143,8 +150,9 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
       }
       const headers = {
         'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-        'Cache-Control': 'no-cache', ETag: c.etag, Vary: 'Accept-Encoding', ...SECURITY_HEADERS,
+        'Cache-Control': 'no-cache', ETag: c.etag, Vary: 'Accept-Encoding', ...SECURITY_HEADERS, ...extra,
       };
+      if (extra) delete headers['X-Frame-Options'];
       if (req.headers['if-none-match'] === c.etag) { res.writeHead(304, headers); return res.end(); }
       const ae = String(req.headers['accept-encoding'] || '');
       let body = c.data;
@@ -159,6 +167,8 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
   async function handle(req, res) {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
+    const host = String(req.headers.host || '');
+    const baseUrl = (/^(localhost|127\.)/.test(host) ? 'http://' : 'https://') + host;
 
     if (req.method === 'POST' && p === '/api/sessions') {
       const ip = clientIp(req);
@@ -170,6 +180,12 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
       recent.push(now);
       createLog.set(ip, recent);
       return json(res, 201, result);
+    }
+    const mk = /^\/api\/r\/([\w-]{6,32})\/menu$/.exec(p);
+    if (req.method === 'GET' && mk) {
+      const rest = svc.restaurantByKey(mk[1]);
+      if (!rest) return json(res, 404, { error: 'not_found' });
+      return json(res, 200, { restaurant: rest, menu: svc.menu(rest.id) });
     }
     if (req.method === 'GET' && p === '/api/restaurants') return json(res, 200, svc.restaurants());
     const m = /^\/api\/restaurants\/(\d+)\/menu$/.exec(p);
@@ -192,19 +208,19 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
       if (req.method === 'GET') {
         const key = url.searchParams.get('key') || '';
         if (admin && key !== admin) return json(res, 404, { error: 'not_found' });
-        return sendHtml(200, setupHtml(svc, key));
+        return sendHtml(200, setupHtml(svc, key, '', baseUrl));
       }
       const form = new URLSearchParams(await readBody(req, 32768));
       const key = form.get('key') || '';
       if (admin && key !== admin) return json(res, 404, { error: 'not_found' });
       try {
         const r = svc.configureDemo({ name: form.get('name'), deliveryRub: form.get('deliveryRub'),
-          servicePct: form.get('servicePct'), menuText: form.get('menuText') });
-        return sendHtml(200, setupHtml(svc, key, `Готово: заведение обновлено, блюд в меню: ${r.items}.`));
+          servicePct: form.get('servicePct'), menuText: form.get('menuText'), origins: form.get('origins') });
+        return sendHtml(200, setupHtml(svc, key, `Готово: заведение обновлено, блюд в меню: ${r.items}.`, baseUrl));
       } catch (e) {
         if (!(e instanceof AppError)) throw e;
         const where = e.extra.line ? `, строка ${e.extra.line}: ${e.extra.why}` : e.extra.why ? `: ${e.extra.why}` : '';
-        return sendHtml(400, setupHtml(svc, key, `Не получилось. Проверьте поле «${e.extra.field || ''}»${where}`));
+        return sendHtml(400, setupHtml(svc, key, `Не получилось. Проверьте поле «${e.extra.field || ''}»${where}`, baseUrl));
       }
     }
     if (req.method === 'GET' && p === '/healthz') return json(res, 200, { ok: true });
@@ -216,7 +232,20 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
-      if (p === '/' || p === '/host' || /^\/host\/[A-Za-z0-9]{6}$/.test(p) || /^\/j\/[A-Za-z0-9]{6}$/.test(p)) {
+      // Во фрейме страницу можно показывать только на сайтах заведения (frame-ancestors).
+      const framed = (origins) => origins.length ? { 'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy'].replace("frame-ancestors 'none'",
+        'frame-ancestors ' + origins.flatMap((h) => /^localhost/.test(h) ? ['http://' + h, 'https://' + h] : ['https://' + h]).join(' ')) } : undefined;
+      if (p === '/embed') {
+        const rest = svc.restaurantByKey(url.searchParams.get('k'));
+        return serveFile(req, res, path.join(PUBLIC, 'app.html'), rest && framed(rest.origins));
+      }
+      const jm = /^\/j\/([A-Za-z0-9]{6})$/.exec(p);
+      if (jm) {
+        const sess = svc.session(jm[1].toUpperCase());
+        const rest = sess && svc.restaurants().find((r) => r.id === sess.restaurant_id);
+        return serveFile(req, res, path.join(PUBLIC, 'app.html'), rest && framed(rest.origins));
+      }
+      if (p === '/' || p === '/host' || /^\/host\/[A-Za-z0-9]{6}$/.test(p)) {
         return serveFile(req, res, path.join(PUBLIC, 'app.html'));
       }
       const file = path.normalize(path.join(PUBLIC, p));
@@ -263,10 +292,12 @@ function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'data'
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
   const app = createApp();
+  const notifier = new Notifier(app.svc);
+  notifier.start();
   app.server.listen(port, () => {
     console.log(`Real-Time Group Order: http://localhost:${port}/host`);
   });
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { app.close(); process.exit(0); });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { notifier.stop(); app.close(); process.exit(0); });
 }
 
 module.exports = { createApp };
