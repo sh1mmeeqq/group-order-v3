@@ -276,7 +276,12 @@ function createApp({ dbFile = process.env.DB_FILE || (fs.existsSync('/data') ? '
     verifyOrigin: (req) => {
       const origin = req.headers.origin;
       if (!origin) return true; // не браузерные клиенты
-      try { return new URL(origin).host === req.headers.host; } catch { return false; }
+      // За прокси Amvera Host может быть переписан — учитываем X-Forwarded-Host.
+      const fwd = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim().toLowerCase();
+      try {
+        const h = new URL(origin).host.toLowerCase();
+        return h === String(req.headers.host || '').toLowerCase() || (!!fwd && h === fwd);
+      } catch { return false; }
     },
   });
 
