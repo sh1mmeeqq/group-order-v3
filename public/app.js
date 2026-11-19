@@ -48,6 +48,7 @@
     cart_empty: 'Корзина пуста',
     bad_state: 'Состояние заказа изменилось, попробуйте ещё раз',
     session_closed: 'Заказ уже закрыт',
+    trial_over: 'Пробный период закончился. Обратитесь в ресторан.',
     not_found: 'Не найдено',
     bad_request: 'Проверьте введённые данные',
     payment_failed: 'Оплата не прошла. Корзина осталась заблокированной',
@@ -528,7 +529,7 @@
     let inner;
     if (m.isHost) {
       inner = ss.phase === 'locked'
-        ? `<button class="btn" data-act="unlock">Разблокировать</button><button class="btn primary" data-act="pay-open">Оплатить · ${rub(ss.grandTotal)}</button>`
+        ? `<button class="btn" data-act="unlock">Разблокировать</button><button class="btn primary" data-act="pay-open">${ss.live ? 'Отправить заказ' : 'Показать заказ'} · ${rub(ss.grandTotal)}</button>`
         : `<div class="bar-total"><span>Итого с доставкой</span><b>${rub(ss.grandTotal)}</b></div>
            <button class="btn primary" data-act="lock-open"${ss.total ? '' : ' aria-disabled="true"'}>К оплате</button>`;
     } else if (S.view === 'menu') {
@@ -914,7 +915,13 @@
           <p id="pay-err" class="err" role="alert"></p>`;
         return confirmSheet('pay', 'Отправить заказ', `Сумма — <b>${total}</b>. Заказ уйдёт в ресторан, оплата при получении, как обычно.<br>Пометка для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, 'Отправить заказ', 'pay', f);
       }
-      return confirmSheet('pay', 'Оплатить заказ', `Сумма к оплате — <b>${total}</b>. В прототипе оплата имитируется: деньги не списываются.<br>Комментарий к заказу для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, `Оплатить ${total}`, 'pay');
+      const txt = S.st.session.orderText || '';
+      return confirmSheet('pay', 'Заказ собран', `Итого — <b>${total}</b>. Передайте заказ ресторану как обычно: позвоните, напишите или оформите на сайте. Текст ниже можно скопировать.`, 'Готово', 'pay',
+        `<textarea id="ord-text" class="ord-text" readonly rows="12">${esc(txt)}</textarea><button class="btn" data-act="copy-order">Скопировать заказ</button>`);
+    },
+    'copy-order': async () => {
+      const ta = document.getElementById('ord-text');
+      if (ta && await copyText(ta.value)) toast('Заказ скопирован');
     },
     pay: () => {
       const ph = document.getElementById('f-phone'), ad = document.getElementById('f-addr');

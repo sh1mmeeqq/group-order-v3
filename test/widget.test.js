@@ -159,3 +159,35 @@ test('миграция: старая БД без ключей получает �
   assert.ok(rows.every((r) => r.key && r.key.length === 12) && rows[0].key !== rows[1].key);
   app.close();
 });
+
+test('пробный период: статус для кнопки, запрет новых заказов после срока', async () => {
+  const { app, base } = await boot();
+  const { key } = app.svc.configureDemo({ ...SETUP, trialDays: '14' });
+  const on = await fetch(`${base}/api/r/${key}/status`);
+  assert.deepStrictEqual(await on.json(), { active: true });
+  assert.strictEqual(on.headers.get('access-control-allow-origin'), '*');
+  assert.strictEqual((await fetch(`${base}/api/r/${'y'.repeat(12)}/status`)).status, 404);
+  const rid = app.svc.restaurantByKey(key).id;
+  app.clock.offset += 15 * 86400e3;
+  assert.deepStrictEqual(await (await fetch(`${base}/api/r/${key}/status`)).json(), { active: false });
+  assert.throws(() => app.svc.createSession({ restaurantId: rid, hostName: 'Олег' }), /trial_over/);
+  // без срока кнопка работает всегда
+  const free = app.svc.configureDemo(SETUP).key;
+  app.clock.offset += 400 * 86400e3;
+  assert.deepStrictEqual(await (await fetch(`${base}/api/r/${free}/status`)).json(), { active: true });
+  app.close();
+});
+
+test('режим без Telegram: «Заказ собран» с текстом без телефона и адреса, ничего не уходит в очередь', async () => {
+  const { app, port } = await boot();
+  const { key } = app.svc.configureDemo(SETUP);
+  const { host } = await lockedOrder(app, port, key);
+  const t = host.state.session.orderText;
+  assert.match(t, /\[Совместный заказ · 1 чел\.\]/);
+  assert.match(t, /Адрес и время напишу\./);
+  assert.doesNotMatch(t, /Телефон:|Оплата при получении/);
+  host.send({ t: 'pay' });
+  await host.until(() => host.state.session.phase === 'paid');
+  assert.strictEqual(app.svc.all('SELECT * FROM outbox').length, 0);
+  app.close();
+});

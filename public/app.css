@@ -311,3 +311,5 @@ button, .range, .pill { touch-action: manipulation; }
 .top { flex-wrap: wrap; row-gap: 10px; }
 .top-t { flex: 1 1 160px; min-width: 0; }
 .top-a { flex: 1 1 auto; justify-content: flex-end; }
+
+.ord-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; line-height: 1.4; padding: 10px 12px; margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); resize: none; }

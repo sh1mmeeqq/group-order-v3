@@ -70,5 +70,10 @@
     if (go && /^[A-Za-z0-9]{6}$/.test(go)) open(go);
   }
 
-  if (document.body) init(); else document.addEventListener('DOMContentLoaded', init);
+  // Пробный период закончился или ключ неверный: кнопку не показываем, сайт остаётся как был.
+  function start() {
+    fetch(base + '/api/r/' + encodeURIComponent(key) + '/status').then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.active) init(); }).catch(function () {});
+  }
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
