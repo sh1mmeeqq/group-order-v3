@@ -92,3 +92,16 @@ CREATE TABLE IF NOT EXISTS events (
   ts              INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, type);
+
+-- Очередь исходящих заказов ресторану: доставка с повторами, ничего не теряется при сбое канала.
+CREATE TABLE IF NOT EXISTS outbox (
+  id          INTEGER PRIMARY KEY,
+  session_id  INTEGER NOT NULL,
+  chat        TEXT    NOT NULL,
+  text        TEXT    NOT NULL,
+  status      TEXT    NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'sent', 'failed')),
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  next_at     INTEGER NOT NULL,
+  error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_at);

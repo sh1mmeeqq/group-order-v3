@@ -77,7 +77,16 @@
   };
   if (S.code) S.token = store.get('go:token:' + S.code);
 
-  const inviteUrl = () => `${location.origin}/j/${S.code}`;
+  // Во фрейме на сайте ресторана ссылка для друзей ведёт на сам сайт (?go=КОД), а не на наш домен.
+  const qs = new URLSearchParams(location.search);
+  const siteUrl = () => {
+    try {
+      const u = new URL(qs.get('s') || '');
+      const ok = (S.st && S.st.session.origins || []).includes(u.host.toLowerCase());
+      return ok && u.protocol.startsWith('http') ? u.origin + u.pathname : null;
+    } catch { return null; }
+  };
+  const inviteUrl = () => { const site = siteUrl(); return site ? `${site}?go=${S.code}` : `${location.origin}/j/${S.code}`; };
   const soloItems = () => (S.menu || []).filter((m) => m.available && S.solo[m.id] > 0).map((m) => ({ ...m, qty: S.solo[m.id] }));
   const soloUnits = () => soloItems().reduce((a, m) => a + m.qty, 0);
   const soloTotal = () => soloItems().reduce((a, m) => a + m.qty * m.price, 0);
@@ -721,7 +730,7 @@
       const carry = soloItems();
       if (carry.length) S.transfer = carry.map((m) => ({ menuItemId: m.id, qty: m.qty }));
       S.code = code; S.token = hostToken; S.showInvite = true; S.view = 'menu';
-      history.replaceState(null, '', '/host/' + code);
+      history.replaceState(null, '', '/host/' + code + location.search);
       closeSheet();
       connect();
     } catch (e) {
@@ -898,9 +907,28 @@
     unlock: () => send({ t: 'unlock' }),
     'pay-open': () => {
       const n = S.st.participants.filter((p) => p.subtotal > 0).length;
-      return confirmSheet('pay', 'Оплатить заказ', `Сумма к оплате — <b>${rub(S.st.session.grandTotal)}</b>. В прототипе оплата имитируется: деньги не списываются.<br>Комментарий к заказу для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, `Оплатить ${rub(S.st.session.grandTotal)}`, 'pay');
+      const total = rub(S.st.session.grandTotal);
+      if (S.st.session.live) {
+        const f = `<label class="f" for="f-phone">Телефон для связи</label><input id="f-phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="+7 900 000-00-00" value="${esc(store.get('go:phone') || '')}">
+          <label class="f" for="f-addr">Адрес доставки</label><input id="f-addr" autocomplete="street-address" maxlength="160" placeholder="Улица, дом, квартира, подъезд" value="${esc(store.get('go:addr') || '')}">
+          <p id="pay-err" class="err" role="alert"></p>`;
+        return confirmSheet('pay', 'Отправить заказ', `Сумма — <b>${total}</b>. Заказ уйдёт в ресторан, оплата при получении, как обычно.<br>Пометка для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, 'Отправить заказ', 'pay', f);
+      }
+      return confirmSheet('pay', 'Оплатить заказ', `Сумма к оплате — <b>${total}</b>. В прототипе оплата имитируется: деньги не списываются.<br>Комментарий к заказу для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, `Оплатить ${total}`, 'pay');
     },
-    pay: () => { closeSheet(); send({ t: 'pay' }); },
+    pay: () => {
+      const ph = document.getElementById('f-phone'), ad = document.getElementById('f-addr');
+      if (ph && ad) {
+        const phone = ph.value.trim(), address = ad.value.trim();
+        const err = document.getElementById('pay-err');
+        if (!/^[+\d][\d\s()-]{6,18}$/.test(phone)) { err.textContent = 'Введите телефон'; ph.focus(); return; }
+        if (!address) { err.textContent = 'Введите адрес доставки'; ad.focus(); return; }
+        store.set('go:phone', phone); store.set('go:addr', address);
+        closeSheet(); send({ t: 'pay', phone, address });
+        return;
+      }
+      closeSheet(); send({ t: 'pay' });
+    },
     mark: (d) => send({ t: 'mark_debt', participantId: Number(d.pid), status: d.v }),
     remind: async (d) => {
       const r = S.st.settlement.find((x) => x.pid === Number(d.pid));
@@ -1002,10 +1030,17 @@
   }
   setInterval(tickTimers, 1000);
 
+  // Во фрейме виджета Esc (когда не открыта шторка) просит оболочку закрыть виджет.
+  if (window.parent !== window) {
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !document.querySelector('.sheet')) window.parent.postMessage({ goWidget: 'close' }, '*');
+    });
+  }
+
   // ---------- Старт ----------
   render();
   if (S.role === 'host' && !S.code) {
-    fetch('/api/active/menu').then((r) => r.json()).then((d) => { S.menu = d.menu; S.restaurant = d.restaurant; render(); })
+    fetch(qs.get('k') ? '/api/r/' + encodeURIComponent(qs.get('k')) + '/menu' : '/api/active/menu').then((r) => r.json()).then((d) => { S.menu = d.menu; S.restaurant = d.restaurant; render(); })
       .catch(() => { $app.innerHTML = '<p class="boot">Не удалось загрузить меню. Обновите страницу.</p>'; });
   } else if (S.code) {
     connect();
