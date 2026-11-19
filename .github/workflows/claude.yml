@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   claude:
-    if: contains(github.event.comment.body, 'claude') || contains(github.event.issue.body, 'claude') || contains(github.event.issue.title, 'claude')
+    if: |
+      github.actor != 'claude[bot]' &&
+      (contains(github.event.comment.body, 'claude') || contains(github.event.issue.body, 'claude') || contains(github.event.issue.title, 'claude'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -22,12 +24,25 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Check ProxyAPI endpoint
+        run: |
+          echo "BASE_URL=$ANTHROPIC_BASE_URL"
+          curl -s -X POST "$ANTHROPIC_BASE_URL/v1/messages" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+
       - name: Run Claude Code Action
         uses: anthropics/claude-code-action@v1
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: claude-sonnet-4-5
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--model claude-sonnet-5-5"
+          claude_args: "--model claude-sonnet-4-5"
           
