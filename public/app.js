@@ -787,6 +787,28 @@
       <div class="acts"><button class="btn primary" data-act="limit-ok">Выбрать другое</button></div>`);
   }
 
+  // «Заказ собран»: текст с адресом собирается только на телефоне хоста, на сервер адрес не уходит.
+  function wireOrder() {
+    const ad = document.getElementById('f-addr'), ta = document.getElementById('ord-text');
+    if (!ad || !ta || S.st.session.live) return;
+    const c = S.st.session.contacts || {};
+    const refresh = () => {
+      const addr = ad.value.trim();
+      const text = (S.st.session.orderText || '').replace('Адрес и время напишу.', addr ? `Адрес: ${addr}\nВремя: как можно скорее.` : 'Адрес и время напишу.');
+      ta.value = text;
+      const q = encodeURIComponent(text);
+      const long = q.length > 1800; // слишком длинный текст в ссылку не помещается: остаётся «Скопировать»
+      document.querySelectorAll('#chan [data-ch]').forEach((a) => {
+        const ch = a.dataset.ch;
+        a.href = ch === 'wa' ? `https://wa.me/${c.wa}?text=${q}` : ch === 'tg' ? `https://t.me/${c.tg}?text=${q}` : `tel:${c.tel}`;
+        a.hidden = long && ch !== 'tel';
+      });
+      if (addr) store.set('go:addr', addr);
+    };
+    ad.addEventListener('input', refresh);
+    refresh();
+  }
+
   // ---------- Действия ----------
   const copyText = async (text) => {
     try { await navigator.clipboard.writeText(text); return true; } catch {
@@ -907,6 +929,7 @@
     lock: () => { closeSheet(); send({ t: 'lock' }); },
     unlock: () => send({ t: 'unlock' }),
     'pay-open': () => {
+      setTimeout(wireOrder, 0);
       const n = S.st.participants.filter((p) => p.subtotal > 0).length;
       const total = rub(S.st.session.grandTotal);
       if (S.st.session.live) {
@@ -915,9 +938,11 @@
           <p id="pay-err" class="err" role="alert"></p>`;
         return confirmSheet('pay', 'Отправить заказ', `Сумма — <b>${total}</b>. Заказ уйдёт в ресторан, оплата при получении, как обычно.<br>Пометка для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, 'Отправить заказ', 'pay', f);
       }
-      const txt = S.st.session.orderText || '';
-      return confirmSheet('pay', 'Заказ собран', `Итого — <b>${total}</b>. Передайте заказ ресторану как обычно: позвоните, напишите или оформите на сайте. Текст ниже можно скопировать.`, 'Готово', 'pay',
-        `<textarea id="ord-text" class="ord-text" readonly rows="12">${esc(txt)}</textarea><button class="btn" data-act="copy-order">Скопировать заказ</button>`);
+      const c = S.st.session.contacts || {};
+      return confirmSheet('pay', 'Заказ собран', `Итого — <b>${total}</b>. Укажите адрес один раз, он сохранится только на этом телефоне. Затем отправьте заказ ресторану одним нажатием.`, 'Готово', 'pay',
+        `<label class="f" for="f-addr">Адрес доставки (по желанию)</label><input id="f-addr" autocomplete="street-address" maxlength="160" placeholder="Улица, дом, квартира, подъезд" value="${esc(store.get('go:addr') || '')}">
+        <div class="chan" id="chan">${c.wa ? '<a class="btn" data-ch="wa" target="_blank" rel="noopener">WhatsApp</a>' : ''}${c.tg ? '<a class="btn" data-ch="tg" target="_blank" rel="noopener">Telegram</a>' : ''}${c.tel ? '<a class="btn" data-ch="tel">Позвонить</a>' : ''}</div>
+        <textarea id="ord-text" class="ord-text" readonly rows="10" aria-label="Текст заказа"></textarea><button class="btn" data-act="copy-order">Скопировать заказ</button>`);
     },
     'copy-order': async () => {
       const ta = document.getElementById('ord-text');

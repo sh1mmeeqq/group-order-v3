@@ -212,3 +212,15 @@ test('/stop КЛЮЧ отвязывает чат: виджет снова в р�
   assert.ok(sent.some((t) => /чат отвязан/.test(t)) && sent.some((t) => /Ключ не подошёл/.test(t)));
   app.close();
 });
+
+test('каналы ресторана: нормализация, проверка, отдаются в состоянии заказа', async () => {
+  const { app, port } = await boot();
+  const { key } = app.svc.configureDemo({ ...SETUP, contactWa: '+7 (900) 123-45-67', contactTg: 'https://t.me/@berloga_x', contactTel: '8 (843) 555' });
+  assert.throws(() => app.svc.configureDemo({ ...SETUP, contactWa: '123' }), /bad_request/);
+  assert.throws(() => app.svc.configureDemo({ ...SETUP, contactTg: 'a b' }), /bad_request/);
+  const { host } = await lockedOrder(app, port, key);
+  assert.deepStrictEqual(host.state.session.contacts, { wa: '79001234567', tg: 'berloga_x', tel: '8843555' });
+  const none = app.svc.configureDemo(SETUP).key;
+  assert.deepStrictEqual((await lockedOrder(app, port, none)).host.state.session.contacts, {});
+  app.close();
+});
