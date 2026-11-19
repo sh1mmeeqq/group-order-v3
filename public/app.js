@@ -96,20 +96,39 @@
 
   // ---------- Сеть ----------
   function connect() {
+    clearTimeout(S.rt);
+    if (S.ws && S.ws.readyState <= 1) { // уже подключены/подключаемся
+      return;
+    }
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
     S.ws = ws;
+    // Если рукопожатие «зависло» за прокси — рвём и переподключаемся.
+    const hang = setTimeout(() => { if (ws.readyState === 0) ws.close(); }, 8000);
+    ws.onerror = () => { /* onclose выполнит переподключение */ };
     ws.onopen = () => {
+      clearTimeout(hang);
       S.retry = 0;
       setNet(true);
       ws.send(JSON.stringify({ t: 'hello', code: S.code, token: S.token }));
     };
     ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch (err) { console.error(err); } };
     ws.onclose = () => {
+      clearTimeout(hang);
       if (S.ws !== ws) return;
       setNet(false);
-      if (!S.fatal) setTimeout(connect, Math.min(10000, 1000 * 2 ** S.retry++));
+      if (!S.fatal) S.rt = setTimeout(connect, Math.min(10000, 1000 * 2 ** S.retry++) + Math.random() * 500);
     };
   }
+
+  // Быстрый реконнект при возврате на вкладку / появлении сети.
+  const wake = () => {
+    if (S.fatal || !S.code) return;
+    if (S.ws && S.ws.readyState <= 1) return;
+    S.retry = 0;
+    connect();
+  };
+  window.addEventListener('online', wake);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
 
   function setNet(ok) {
     S.connected = ok;
