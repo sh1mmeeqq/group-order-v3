@@ -191,3 +191,24 @@ test('режим без Telegram: «Заказ собран» с текстом 
   assert.strictEqual(app.svc.all('SELECT * FROM outbox').length, 0);
   app.close();
 });
+
+test('/stop КЛЮЧ отвязывает чат: виджет снова в режиме «только корзина»', async () => {
+  const { app } = await boot();
+  const { key } = app.svc.configureDemo(SETUP);
+  const sent = [];
+  const upd = (id, text) => ({ update_id: id, message: { text, chat: { id: 9 } } });
+  let batch = [upd(1, `/start ${key}`)];
+  const fetchFn = async (url, opts) => {
+    if (url.endsWith('/getUpdates')) { const r = batch; batch = []; return { ok: true, json: async () => ({ ok: true, result: r }) }; }
+    sent.push(JSON.parse(opts.body).text);
+    return { ok: true, json: async () => ({ ok: true, result: {} }) };
+  };
+  const n = new Notifier(app.svc, { token: 'T', fetchFn });
+  await n.poll();
+  assert.strictEqual(app.svc.restaurantByKey(key).live, true);
+  batch = [upd(2, `/stop ${key}`), upd(3, '/stop WRONGKEY99')];
+  await n.poll();
+  assert.strictEqual(app.svc.restaurantByKey(key).live, false);
+  assert.ok(sent.some((t) => /чат отвязан/.test(t)) && sent.some((t) => /Ключ не подошёл/.test(t)));
+  app.close();
+});
