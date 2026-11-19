@@ -19,7 +19,7 @@ body{overflow-x:hidden;font-family:serif}div{position:relative;z-index:99999}</s
   const site = http.createServer();
   await new Promise((r) => site.listen(0, '127.0.0.1', r));
   const sitePort = site.address().port;
-  const { key } = app.svc.configureDemo({ name: 'Берлога', deliveryRub: '100', servicePct: 0, origins: `localhost:${sitePort}`,
+  const { key } = app.svc.configureDemo({ name: 'Берлога', deliveryRub: '100', servicePct: 0, origins: `localhost:${sitePort}`, contactWa: '+7 (900) 123-45-67', contactTg: '@berloga_orders', contactTel: '+7 843 555-00-11',
     menuText: 'Сеты | Мега-сет | 3800\nНапитки | Морс | 250' });
   const CART_ONLY = process.env.CART_ONLY === '1'; // режим без Telegram: «Заказ собран» + копирование
   if (!CART_ONLY) app.svc.run('UPDATE restaurants SET tg_chat = ? WHERE key = ?', '555', key);
@@ -80,11 +80,17 @@ body{overflow-x:hidden;font-family:serif}div{position:relative;z-index:99999}</s
       const t = await fr.locator('#ord-text').inputValue();
       check('режим без Telegram: телефона и адреса не запрашивается', (await fr.locator('#f-phone').count()) === 0);
       check('текст заказа с меткой и составом', /Совместный заказ · 2 чел\./.test(t) && /Мега-сет/.test(t) && /Морс/.test(t) && /Итого: 4\s150\s₽/.test(t) && !/Телефон/.test(t), t);
+      await fr.locator('#f-addr').fill('Казань, ул. Баумана 1, кв. 5');
+      const wa = decodeURIComponent((await fr.locator('[data-ch="wa"]').getAttribute('href')) || '');
+      check('кнопка WhatsApp ведёт в чат ресторана с текстом и адресом', wa.startsWith('https://wa.me/79001234567?text=') && /Совместный заказ/.test(wa) && /Адрес: Казань, ул. Баумана 1, кв. 5/.test(wa), wa);
+      const tg = (await fr.locator('[data-ch="tg"]').getAttribute('href')) || '';
+      check('кнопка Telegram и «Позвонить»', tg.startsWith('https://t.me/berloga_orders?text=') && (await fr.locator('[data-ch="tel"]').getAttribute('href')) === 'tel:+78435550011', tg);
+      check('адрес запомнен только в браузере хоста', (await fr.locator('body').evaluate(() => Object.keys(localStorage).some((k) => /addr/.test(k)))) === true);
       check('есть кнопка «Скопировать заказ»', (await fr.getByRole('button', { name: 'Скопировать заказ' }).count()) === 1);
       await page.screenshot({ path: process.env.SHOT_DIR ? `${process.env.SHOT_DIR}/widget-4-cart-only.png` : undefined }).catch(() => {});
       await fr.getByRole('button', { name: 'Готово' }).click();
       for (let i = 0; i < 40 && !/Заказ оплачен|оплачен|Готово|Разделить|Кто сколько/.test(await fr.locator('body').innerText()); i++) await page.waitForTimeout(100);
-      check('после «Готово» ничего не ушло в очередь', app.svc.all('SELECT * FROM outbox').length === 0);
+      check('после «Готово» ничего не ушло в очередь, адреса на сервере нет', app.svc.all('SELECT * FROM outbox').length === 0 && !JSON.stringify(app.svc.all('SELECT * FROM sessions')).includes('Баумана'));
     } else {
       check('форма заказа просит телефон и адрес', (await fr.locator('#f-phone').count()) === 1 && (await fr.locator('#f-addr').count()) === 1);
       await fr.getByRole('button', { name: 'Отправить заказ', exact: false }).last().click();

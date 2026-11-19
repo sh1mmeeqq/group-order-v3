@@ -69,6 +69,10 @@ ${msg ? `<p class="carry" role="status">${esc(msg)}</p>` : ''}
 <input id="s-pct" name="servicePct" inputmode="numeric" required value="${esc(r.servicePct)}">
 <label class="f" for="s-orig">Сайты ресторана (где будет виджет)</label>
 <input id="s-orig" name="origins" maxlength="200" placeholder="site.ru, www.site.ru" value="${esc(r.origins.join(', '))}">
+<label class="f" for="s-wa">Как ресторан принимает заказы (необязательно)</label>
+<input id="s-wa" name="contactWa" inputmode="tel" maxlength="20" placeholder="WhatsApp: 79001234567">
+<input name="contactTg" maxlength="40" placeholder="Telegram: логин без @" aria-label="Telegram ресторана">
+<input name="contactTel" inputmode="tel" maxlength="20" placeholder="Телефон: +79001234567" aria-label="Телефон ресторана">
 <label class="f" for="s-trial">Пробный период, дней (пусто = без ограничения)</label>
 <input id="s-trial" name="trialDays" inputmode="numeric" maxlength="3" placeholder="14" value="">
 <label class="f" for="s-menu">Меню: одно блюдо в строке</label>
@@ -222,7 +226,8 @@ function createApp({ dbFile = process.env.DB_FILE || (fs.existsSync('/data') ? '
       if (admin && key !== admin) return json(res, 404, { error: 'not_found' });
       try {
         const r = svc.configureDemo({ name: form.get('name'), deliveryRub: form.get('deliveryRub'),
-          servicePct: form.get('servicePct'), menuText: form.get('menuText'), origins: form.get('origins'), trialDays: form.get('trialDays') });
+          servicePct: form.get('servicePct'), menuText: form.get('menuText'), origins: form.get('origins'), trialDays: form.get('trialDays'),
+          contactWa: form.get('contactWa'), contactTg: form.get('contactTg'), contactTel: form.get('contactTel') });
         return sendHtml(200, setupHtml(svc, key, `Готово: заведение обновлено, блюд в меню: ${r.items}.`, baseUrl));
       } catch (e) {
         if (!(e instanceof AppError)) throw e;
