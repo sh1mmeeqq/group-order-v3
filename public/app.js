@@ -74,7 +74,7 @@
     menu: null, restaurant: null, st: null, anon: null, fatal: null,
     view: 'menu', tab: 'mine', cat: null, offset: 0,
     fresh: new Map(), draftName: '', sheet: null, warned: null, showInvite: false, trackedPaid: false,
-    solo: loadSolo(), transfer: null,
+    solo: loadSolo(), transfer: null, consent: false,
   };
   if (S.code) S.token = store.get('go:token:' + S.code);
 
@@ -322,6 +322,12 @@
     payoutPh: '+7 900 123-45-67, Т-Банк',
     createBtn: 'Позвать друзей по ссылке',
   };
+  // Согласие на обработку ПДн (152-ФЗ): по умолчанию не отмечено, без отметки форма не отправляется
+  const CONSENT_ERR = 'Отметьте согласие на обработку персональных данных';
+  const consentHtml = (id, checked) => `<label class="consent" style="display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-size:13px;text-align:left">
+      <input type="checkbox" id="${id}" data-consent style="flex:none;margin-top:2px"${checked ? ' checked' : ''}>
+      <span>Я согласен(на) на обработку персональных данных (<a href="/privacy" target="_blank" rel="noopener">Политика</a>) и принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a></span></label>`;
+  const consentOk = (id) => { const c = document.getElementById(id); return !!(c && c.checked); };
   const HELP = {
     name: 'Так вас увидят друзья в общей корзине. Достаточно имени, регистрация не нужна.',
     title: 'Короткое название, чтобы друзья сразу поняли, о чём заказ. Можно оставить пустым.',
@@ -411,6 +417,7 @@
       <form data-form="join" novalidate>
         <label class="f" for="nm">Как вас зовут?</label>
         <input id="nm" type="text" maxlength="24" autocomplete="given-name" autocapitalize="words" placeholder="Например, Макс" value="${esc(S.draftName)}" required>
+        ${consentHtml('c-join', S.consent)}
         <p class="err" id="nerr" role="alert"></p>
         <button class="btn primary wide" type="submit">Продолжить</button>
         <p class="hint">Регистрация и установка не нужны: просто введите имя и выбирайте блюда</p>
@@ -668,6 +675,7 @@
         ${fieldLabel('f-payout', TXT.payoutLabel, 'payout', true)}
         <input id="f-payout" type="text" maxlength="120" autocomplete="off" value="${esc(store.get('go:payout') || '')}" placeholder="${TXT.payoutPh}">
         <p class="hint" style="text-align:left;margin-top:6px">Друзья увидят ваши реквизиты и свою сумму, когда заказ будет оплачен.</p>
+        ${consentHtml('c-create', false)}
         <p class="err" id="ferr" role="alert"></p>
         <div class="acts"><button class="btn primary" type="submit" id="f-go">${TXT.createBtn}</button></div>
         <p class="hint" style="margin-top:10px">Ссылка и QR-код появятся на следующем шаге, их можно отправить в мессенджер одним нажатием. Друзья откроют её в браузере.</p></form>`);
@@ -731,6 +739,7 @@
     const err = document.getElementById('ferr');
     const hostName = document.getElementById('f-name').value.trim();
     if (!hostName) { err.textContent = 'Введите ваше имя'; return; }
+    if (!consentOk('c-create')) { err.textContent = CONSENT_ERR; return; }
     const f = readFields();
     if (f.error) { err.textContent = f.error; return; }
     const payoutInfo = document.getElementById('f-payout').value.trim();
@@ -954,6 +963,7 @@
       if (S.st.session.live) {
         const f = `<label class="f" for="f-phone">Телефон для связи</label><input id="f-phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="+7 900 000-00-00" value="${esc(store.get('go:phone') || '')}">
           <label class="f" for="f-addr">Адрес доставки</label><input id="f-addr" autocomplete="street-address" maxlength="160" placeholder="Улица, дом, квартира, подъезд" value="${esc(store.get('go:addr') || '')}">
+          ${consentHtml('c-pay', false)}
           <p id="pay-err" class="err" role="alert"></p>`;
         return confirmSheet('pay', 'Отправить заказ', `Сумма — <b>${total}</b>. Заказ уйдёт в ресторан, оплата при получении, как обычно.<br>Пометка для ресторана: <b>[Совместный заказ · ${n} чел.]</b>`, 'Отправить заказ', 'pay', f);
       }
@@ -974,6 +984,7 @@
         const err = document.getElementById('pay-err');
         if (!/^[+\d][\d\s()-]{6,18}$/.test(phone)) { err.textContent = 'Введите телефон'; ph.focus(); return; }
         if (!address) { err.textContent = 'Введите адрес доставки'; ad.focus(); return; }
+        if (!consentOk('c-pay')) { err.textContent = CONSENT_ERR; return; }
         store.set('go:phone', phone); store.set('go:addr', address);
         closeSheet(); send({ t: 'pay', phone, address });
         return;
@@ -1022,6 +1033,7 @@
   document.addEventListener('input', (e) => {
     const t = e.target;
     if (t.id === 'nm') S.draftName = t.value;
+    if (t.id === 'c-join') S.consent = t.checked; // перерисовка не должна сбрасывать отметку
     if (t.classList && t.classList.contains('range')) { document.getElementById(t.dataset.for).value = t.value; syncRange(t.dataset.for); }
     if (t.id === 'f-limit' || t.id === 'f-timer') syncRange(t.id);
   });
@@ -1033,6 +1045,7 @@
     if (form.dataset.form === 'join') {
       const name = document.getElementById('nm').value.trim();
       if (!name) { document.getElementById('nerr').textContent = 'Введите имя'; return; }
+      if (!consentOk('c-join')) { document.getElementById('nerr').textContent = CONSENT_ERR; return; }
       send({ t: 'join', name });
     }
   });
