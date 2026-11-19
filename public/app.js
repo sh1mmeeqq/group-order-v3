@@ -816,24 +816,39 @@
   }
 
   // «Заказ собран»: текст с адресом собирается только на телефоне хоста, на сервер адрес не уходит.
+  const isPickup = () => { const r = document.querySelector('input[name="f-mode"]:checked'); return !!r && r.value === 'pickup'; };
+  // «Доставка» без адреса: показывает ошибку и возвращает true (действие нужно заблокировать)
+  function orderBlocked() {
+    const ad = document.getElementById('f-addr'), er = document.getElementById('addr-err');
+    const bad = !!ad && !isPickup() && !ad.value.trim();
+    if (er) er.textContent = bad ? 'Введите адрес доставки' : '';
+    if (bad) ad.focus();
+    return bad;
+  }
   function wireOrder() {
     const ad = document.getElementById('f-addr'), ta = document.getElementById('ord-text');
     if (!ad || !ta || S.st.session.live) return;
     const c = S.st.session.contacts || {};
     const refresh = () => {
-      const addr = ad.value.trim();
-      const text = (S.st.session.orderText || '').replace('Адрес и время напишу.', addr ? `Адрес: ${addr}\nВремя: как можно скорее.` : 'Адрес и время напишу.');
+      const pickup = isPickup(), addr = ad.value.trim(), bad = !pickup && !addr;
+      document.getElementById('addr-wrap').hidden = pickup;
+      document.getElementById('addr-err').textContent = bad ? 'Введите адрес доставки' : '';
+      const text = (S.st.session.orderText || '').replace('Адрес и время напишу.', pickup ? 'Самовывоз.\nВремя: как можно скорее.' : addr ? `Адрес: ${addr}\nВремя: как можно скорее.` : 'Адрес и время напишу.');
       ta.value = text;
       const q = encodeURIComponent(text);
       const long = q.length > 1800; // слишком длинный текст в ссылку не помещается: остаётся «Скопировать»
       document.querySelectorAll('#chan [data-ch]').forEach((a) => {
         const ch = a.dataset.ch;
-        a.href = ch === 'wa' ? `https://wa.me/${c.wa}?text=${q}` : ch === 'tg' ? `https://t.me/${c.tg}?text=${q}` : `tel:${c.tel}`;
+        if (bad) a.removeAttribute('href');
+        else a.href = ch === 'wa' ? `https://wa.me/${c.wa}?text=${q}` : ch === 'tg' ? `https://t.me/${c.tg}?text=${q}` : `tel:${c.tel}`;
+        a.setAttribute('aria-disabled', String(bad));
         a.hidden = long && ch !== 'tel';
       });
-      if (addr) store.set('go:addr', addr);
+      if (!pickup && addr) store.set('go:addr', addr);
     };
     ad.addEventListener('input', refresh);
+    document.querySelectorAll('input[name="f-mode"]').forEach((r) => r.addEventListener('change', refresh));
+    document.getElementById('chan').addEventListener('click', (e) => { if (e.target.closest('[data-ch]') && orderBlocked()) e.preventDefault(); });
     refresh();
   }
 
@@ -969,13 +984,15 @@
       }
       const c = S.st.session.contacts || {};
       return confirmSheet('pay', 'Заказ собран', `Итого — <b>${total}</b>. Укажите адрес один раз, он сохранится только на этом телефоне. Затем отправьте заказ ресторану одним нажатием.`, 'Готово', 'pay',
-        `<label class="f" for="f-addr">Адрес доставки (по желанию)</label><input id="f-addr" autocomplete="street-address" maxlength="160" placeholder="Улица, дом, квартира, подъезд" value="${esc(store.get('go:addr') || '')}">
+        `<div role="radiogroup" aria-label="Способ получения"><label><input type="radio" name="f-mode" value="delivery" checked> Доставка</label> <label style="margin-left:14px"><input type="radio" name="f-mode" value="pickup"> Самовывоз</label></div>
+        <div id="addr-wrap"><label class="f" for="f-addr">Адрес доставки</label><input id="f-addr" autocomplete="street-address" maxlength="160" placeholder="Улица, дом, квартира, подъезд" value="${esc(store.get('go:addr') || '')}"></div>
+        <p id="addr-err" class="err" role="alert"></p>
         <div class="chan" id="chan">${c.wa ? '<a class="btn" data-ch="wa" target="_blank" rel="noopener">WhatsApp</a>' : ''}${c.tg ? '<a class="btn" data-ch="tg" target="_blank" rel="noopener">Telegram</a>' : ''}${c.tel ? '<a class="btn" data-ch="tel">Позвонить</a>' : ''}</div>
         <textarea id="ord-text" class="ord-text" readonly rows="10" aria-label="Текст заказа"></textarea><button class="btn" data-act="copy-order">Скопировать заказ</button>`);
     },
     'copy-order': async () => {
       const ta = document.getElementById('ord-text');
-      if (ta && await copyText(ta.value)) toast('Заказ скопирован');
+      if (ta && !orderBlocked() && await copyText(ta.value)) toast('Заказ скопирован');
     },
     pay: () => {
       const ph = document.getElementById('f-phone'), ad = document.getElementById('f-addr');
@@ -989,6 +1006,7 @@
         closeSheet(); send({ t: 'pay', phone, address });
         return;
       }
+      if (ad && orderBlocked()) return;
       closeSheet(); send({ t: 'pay' });
     },
     mark: (d) => send({ t: 'mark_debt', participantId: Number(d.pid), status: d.v }),
