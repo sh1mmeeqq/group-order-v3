@@ -21,7 +21,8 @@ body{overflow-x:hidden;font-family:serif}div{position:relative;z-index:99999}</s
   const sitePort = site.address().port;
   const { key } = app.svc.configureDemo({ name: 'Берлога', deliveryRub: '100', servicePct: 0, origins: `localhost:${sitePort}`,
     menuText: 'Сеты | Мега-сет | 3800\nНапитки | Морс | 250' });
-  app.svc.run('UPDATE restaurants SET tg_chat = ? WHERE key = ?', '555', key);
+  const CART_ONLY = process.env.CART_ONLY === '1'; // режим без Telegram: «Заказ собран» + копирование
+  if (!CART_ONLY) app.svc.run('UPDATE restaurants SET tg_chat = ? WHERE key = ?', '555', key);
   site.on('request', (q, s) => { s.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); s.end(SITE(sitePort, key, appPort)); });
   const siteUrl = `http://localhost:${sitePort}/`;
 
@@ -75,18 +76,29 @@ body{overflow-x:hidden;font-family:serif}div{position:relative;z-index:99999}</s
     await fr.locator('[data-act="lock-open"]').click();
     await fr.getByRole('button', { name: 'Заблокировать и оплатить' }).click();
     await fr.locator('[data-act="pay-open"]').click();
-    check('форма заказа просит телефон и адрес', (await fr.locator('#f-phone').count()) === 1 && (await fr.locator('#f-addr').count()) === 1);
-    await fr.getByRole('button', { name: 'Отправить заказ' }).click();
-    check('пустой телефон не пропускается', /Введите телефон/.test(await fr.locator('#pay-err').innerText()));
-    await fr.locator('#f-phone').fill('+7 900 111-22-33');
-    await fr.locator('#f-addr').fill('Казань, ул. Баумана 1, кв. 5');
-    await fr.getByRole('button', { name: 'Отправить заказ' }).click();
-    for (let i = 0; i < 100 && !app.svc.all('SELECT * FROM outbox').length; i++) await new Promise((r) => setTimeout(r, 50));
-    const [row] = app.svc.all('SELECT * FROM outbox');
-    check('заказ попал в очередь для Telegram с пометкой и составом', !!row && /Совместный заказ · 2 чел\./.test(row.text) && /Мега-сет/.test(row.text) && /Морс/.test(row.text) && /Баумана/.test(row.text), row && row.text);
-    if (row) console.log('--- текст заказа ---\n' + row.text + '\n--------------------');
+    if (CART_ONLY) {
+      const t = await fr.locator('#ord-text').inputValue();
+      check('режим без Telegram: телефона и адреса не запрашивается', (await fr.locator('#f-phone').count()) === 0);
+      check('текст заказа с меткой и составом', /Совместный заказ · 2 чел\./.test(t) && /Мега-сет/.test(t) && /Морс/.test(t) && /Итого: 4\s150\s₽/.test(t) && !/Телефон/.test(t), t);
+      check('есть кнопка «Скопировать заказ»', (await fr.getByRole('button', { name: 'Скопировать заказ' }).count()) === 1);
+      await page.screenshot({ path: process.env.SHOT_DIR ? `${process.env.SHOT_DIR}/widget-4-cart-only.png` : undefined }).catch(() => {});
+      await fr.getByRole('button', { name: 'Готово' }).click();
+      for (let i = 0; i < 40 && !/Заказ оплачен|оплачен|Готово|Разделить|Кто сколько/.test(await fr.locator('body').innerText()); i++) await page.waitForTimeout(100);
+      check('после «Готово» ничего не ушло в очередь', app.svc.all('SELECT * FROM outbox').length === 0);
+    } else {
+      check('форма заказа просит телефон и адрес', (await fr.locator('#f-phone').count()) === 1 && (await fr.locator('#f-addr').count()) === 1);
+      await fr.getByRole('button', { name: 'Отправить заказ', exact: false }).last().click();
+      check('пустой телефон не пропускается', /Введите телефон/.test(await fr.locator('#pay-err').innerText()));
+      await fr.locator('#f-phone').fill('+7 900 111-22-33');
+      await fr.locator('#f-addr').fill('Казань, ул. Баумана 1, кв. 5');
+      await fr.getByRole('button', { name: 'Отправить заказ', exact: false }).last().click();
+      for (let i = 0; i < 100 && !app.svc.all('SELECT * FROM outbox').length; i++) await new Promise((r) => setTimeout(r, 50));
+      const [row] = app.svc.all('SELECT * FROM outbox');
+      check('заказ попал в очередь для Telegram с пометкой и составом', !!row && /Совместный заказ · 2 чел\./.test(row.text) && /Мега-сет/.test(row.text) && /Морс/.test(row.text) && /Баумана/.test(row.text), row && row.text);
+      if (row) console.log('--- текст заказа ---\n' + row.text + '\n--------------------');
 
-    // Закрытие
+      // Закрытие
+    }
     // Esc сначала закрывает открытую шторку приложения, затем сам виджет
     for (let i = 0; i < 3 && (await page.evaluate(() => document.documentElement.style.overflow)) === 'hidden'; i++) {
       await page.keyboard.press('Escape'); await page.waitForTimeout(300);
