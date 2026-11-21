@@ -11,7 +11,7 @@
   if (!key) return console.warn('[go-widget] нужен data-key');
   window.__goWidget = true;
   var base = new URL(s.src, location.href).origin;
-  var label = s.getAttribute('data-label') || 'Заказать вместе';
+  var label = s.getAttribute('data-label') || 'Заказать компанией';
   var color = /^#[0-9a-f]{3,8}$/i.test(s.getAttribute('data-color') || '') ? s.getAttribute('data-color') : '#e4572e';
   var left = s.getAttribute('data-pos') === 'left';
 
