@@ -294,11 +294,14 @@ function createApp({ dbFile = process.env.DB_FILE || (fs.existsSync('/data') ? '
       return res.end(req.method === 'HEAD' ? undefined : legalHtml(LEGAL[p]));
     }
     if (req.method === 'GET' && p === '/healthz') return json(res, 200, { ok: true });
-    if (req.method === 'GET' && p === '/stats') {
+        if (req.method === 'GET' && p === '/stats') {
       const key = process.env.STATS_KEY;
       if (key && url.searchParams.get('key') !== key) return json(res, 404, { error: 'not_found' });
+      const k = url.searchParams.get('k');
+      const rest = k ? svc.restaurantByKey(k) : null;
+      if (k && !rest) return json(res, 404, { error: 'not_found' });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
-      return res.end(statsHtml(svc.stats()));
+      return res.end(statsHtml(svc.stats(rest ? rest.id : null), rest ? rest.name : 'Совместные заказы'));
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
