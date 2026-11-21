@@ -30,7 +30,7 @@ const SECURITY_HEADERS = {
 // STATS_KEY открывается только по /stats?key=<ключ>.
 const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtRub = (kop) => `${(kop / 100).toLocaleString('ru-RU', { minimumFractionDigits: kop % 100 ? 2 : 0, maximumFractionDigits: 2 })} ₽`;
-function statsHtml(st) {
+function statsHtml(st, restName = 'Совместные заказы') {
   const tile = (label, value, hint) => `<div class="tile"><span>${esc(label)}</span><b>${esc(value)}</b>${hint ? `<small>${esc(hint)}</small>` : ''}</div>`;
   const tiles = [
     tile('Совместных заказов', st.orders, 'оформлено и оплачено'),
@@ -44,7 +44,7 @@ function statsHtml(st) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex,nofollow"><meta http-equiv="refresh" content="30"><title>Итоги теста</title>
 <link rel="stylesheet" href="/app.css"></head><body><main class="stats">
-<p class="rest">Совместные заказы</p><h1>Итоги теста</h1><div class="tiles">${tiles}</div>
+<p class="rest">${esc(restName)}</p><h1>Итоги теста</h1><div class="tiles">${tiles}</div>
 <p class="muted note">${st.orders ? 'Считаются только оплаченные совместные заказы.' : 'Пока нет оплаченных совместных заказов. Оформите тестовый заказ, и цифры появятся здесь.'} Страница обновляется сама.</p>
 </main></body></html>`;
 }
