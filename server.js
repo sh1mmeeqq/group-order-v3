@@ -83,7 +83,13 @@ ${msg ? `<p class="carry" role="status">${esc(msg)}</p>` : ''}
 Код для сайта: <code>${esc(`<script src="${base}/w.js" data-key="${rk}" defer></script>`)}</code><br>
 Прямая ссылка на виджет: <a href="/embed?k=${esc(rk)}">${esc(base)}/embed?k=${esc(rk)}</a></p>
 <p class="muted note">Новое заведение сразу появляется у всех. Идущие заказы остаются со своим старым меню.</p>
-<p class="muted note"><a href="/">Открыть приложение</a></p></main></body></html>`;
+<p class="muted note"><a href="/">Открыть приложение</a></p>
+<h2 style="margin-top:24px">Все заведения</h2>
+${svc.all('SELECT id, name, key, tg_chat IS NOT NULL live, trial_until trialUntil FROM restaurants ORDER BY id DESC LIMIT 30').map((x) => {
+  const st = x.trialUntil ? (x.trialUntil > svc.now() ? `до ${new Date(x.trialUntil).toLocaleDateString('ru-RU')}` : 'истёк') : 'безлимит';
+  return `<div style="margin:8px 0;padding:10px;border:1px solid #8884;border-radius:8px;font-size:13px;word-break:break-all"><b>${esc(x.name)}</b> (${esc(st)}${x.live ? ', TG ✓' : ''})<br>TG: <code>/start ${esc(x.key)}</code> · <a href="/embed?k=${esc(x.key)}">Демо</a><br><code>${esc(`<script src="${base}/w.js" data-key="${x.key}" defer></script>`)}</code></div>`;
+}).join('')}
+</main></body></html>`;
 }
 
 // Юридические страницы /terms, /privacy и /offer.
